@@ -21,6 +21,18 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      # PyYAML reaches the runner image transitively rather than as a declared
+      # package, so treat it as a job dependency instead of a side effect of
+      # whichever step happens to need it first. Installing into the user site
+      # leaves the system distribution in place: it ships no RECORD file, so
+      # pip cannot uninstall it and an upgrade in place would fail the job.
+      - name: Install Python dependencies
+        run: |
+          python3 -c 'import yaml' 2>/dev/null ||
+            python3 -m pip install --quiet --disable-pip-version-check \
+              --user --break-system-packages pyyaml
+          python3 -c 'import yaml; print("PyYAML", yaml.__version__, "from", yaml.__file__)'
+
       - name: Validate JSON files
         run: |
           echo "Validating JSON files..."
@@ -31,10 +43,7 @@ jobs:
           echo "All JSON files are valid."
 
       - name: Validate SKILL.md frontmatter
-        run: |
-          python3 -c 'import yaml' 2>/dev/null ||
-            python3 -m pip install --quiet --disable-pip-version-check pyyaml
-          python3 scripts/validate_skill_frontmatter.py .
+        run: python3 scripts/validate_skill_frontmatter.py .
 
       - name: Validate skills.sh discovery
         run: |
