@@ -163,6 +163,77 @@ test("setup skips an older PATH entry and pins the compatible binary", () => {
   assert.equal(rendered.stdout, `${FULL_LINE}\n`);
 });
 
+const UNAVAILABLE_LINE = "fallow impact  data unavailable";
+
+const writeFallowScript = (path, line) => {
+  writeFileSync(
+    path,
+    `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  printf 'fallow ${MINIMUM_FALLOW_VERSION}\\n'
+  exit 0
+fi
+printf '${line}\\n'
+`,
+  );
+  chmodSync(path, 0o755);
+};
+
+const installedRender = (current, extraEnv) => {
+  parseOutput(
+    runHelper(current, [
+      "install",
+      "--scope",
+      "user",
+      "--root",
+      current.project,
+      "--mode",
+      "replace",
+      "--confirm",
+    ]),
+  );
+  const paths = pathsFor({ scope: "user", root: current.project, home: current.home });
+  const settings = JSON.parse(readFileSync(paths.settings, "utf8"));
+  return spawnSync(settings.statusLine.command, {
+    cwd: current.project,
+    encoding: "utf8",
+    env: { ...current.env, NO_COLOR: "1", ...extraEnv },
+    input: JSON.stringify({ cwd: current.project }),
+    shell: true,
+  });
+};
+
+test("render prefers the current PATH binary over a stale pinned one", () => {
+  const current = fixture();
+  const newBin = join(current.root, "new-bin");
+  mkdirSync(newBin, { recursive: true });
+  const rendered = installedRender(current, { PATH: newBin });
+  assert.equal(rendered.status, 0, rendered.stderr);
+  assert.equal(rendered.stdout, `${FULL_LINE}\n`);
+
+  writeFallowScript(current.fallow, UNAVAILABLE_LINE);
+  writeFallowScript(join(newBin, "fallow"), FULL_LINE);
+  const upgraded = installedRender(current, { PATH: newBin });
+  assert.equal(upgraded.status, 0, upgraded.stderr);
+  assert.equal(upgraded.stdout, `${FULL_LINE}\n`);
+});
+
+test("render falls back to the pinned binary when PATH cannot read the store", () => {
+  const current = fixture();
+  const staleBin = join(current.root, "stale-bin");
+  mkdirSync(staleBin, { recursive: true });
+  writeFallowScript(join(staleBin, "fallow"), UNAVAILABLE_LINE);
+
+  const rendered = installedRender(current, { PATH: staleBin });
+  assert.equal(rendered.status, 0, rendered.stderr);
+  assert.equal(rendered.stdout, `${FULL_LINE}\n`);
+
+  writeFallowScript(current.fallow, UNAVAILABLE_LINE);
+  const degraded = installedRender(current, { PATH: staleBin });
+  assert.equal(degraded.status, 0, degraded.stderr);
+  assert.equal(degraded.stdout, `${UNAVAILABLE_LINE}\n`);
+});
+
 test("replace setup installs a stable runtime and renders a compact plain line", () => {
   const current = fixture();
   const installed = parseOutput(

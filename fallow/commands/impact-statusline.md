@@ -52,7 +52,9 @@ Do not modify files.
 
 The helper preserves the previous setting and refuses to overwrite later
 manual changes. It skips stale Fallow binaries earlier on `PATH` and pins the
-first compatible installation, so later statusline renders use the same CLI.
+first compatible installation. Each render prefers the current `fallow` on
+`PATH` and falls back to the pinned binary when that entry is missing, too old,
+or cannot read the Impact store, so upgrading Fallow never leaves a stale line.
 If the preview says `fallow impact  off`, tell the user they may run
 `fallow impact enable` themselves. Do not run it.
 

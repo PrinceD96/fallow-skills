@@ -259,6 +259,26 @@ const fallowCandidates = () => {
   return candidates;
 };
 
+const STATUSLINE_PREFIX = "fallow impact  ";
+// Lines the CLI prints when it cannot read the Impact store: worth retrying
+// with another binary before showing them.
+const DEGRADED_STATUSLINE = /^fallow impact {2}(?:data unavailable$|.*newer fallow)/u;
+
+const validStatusline = (output) =>
+  output !== "" && !output.includes("\n") && output.startsWith(STATUSLINE_PREFIX);
+
+const currentPathFallow = () => {
+  const [candidate] = fallowCandidates();
+  if (candidate === undefined) {
+    return null;
+  }
+  try {
+    return realpathSync(candidate);
+  } catch {
+    return null;
+  }
+};
+
 const preflight = (root) => {
   const foundVersions = [];
   let compatibleWithoutStatusline = false;
@@ -583,13 +603,41 @@ const colorizeStatusline = (line, columns = null) => {
       ) {
         return `${COLORS.muted}${segment}${COLORS.reset}`;
       }
-      if (segment.includes("unavailable")) {
+      if (segment.includes("unavailable") || segment.includes("newer fallow")) {
         return `${COLORS.amber}${segment}${COLORS.reset}`;
       }
       return segment;
     })
     .join(` ${COLORS.muted}·${COLORS.reset} `);
   return `${badge}  ${colored}`;
+};
+
+// The binary pinned at setup goes stale when Fallow is upgraded through another
+// installer, so the current PATH binary is tried first and the pinned one only
+// covers a PATH entry that is missing, too old, or cannot read the store.
+const renderFallowStatusline = async (state, root) => {
+  const pinned = state.fallowBinary ?? "fallow";
+  const fromPath = currentPathFallow();
+  const binaries = fromPath !== null && fromPath !== pinned ? [fromPath, pinned] : [pinned];
+  let degraded = "";
+  for (const binary of binaries) {
+    const output = await runCaptured({
+      command: binary,
+      args: ["--root", root, "impact", "statusline"],
+      input: "",
+      cwd: root,
+      noColor: true,
+    });
+    if (!validStatusline(output)) {
+      continue;
+    }
+    if (DEGRADED_STATUSLINE.test(output)) {
+      degraded = degraded === "" ? output : degraded;
+      continue;
+    }
+    return output;
+  }
+  return degraded;
 };
 
 const usableRoot = (candidate, fallback) => {
@@ -636,23 +684,17 @@ const render = async (statePath) => {
           cwd: root,
           shell: true,
         });
-  const fallowRun = runCaptured({
-    command: state.fallowBinary ?? "fallow",
-    args: ["--root", root, "impact", "statusline"],
-    input: "",
-    cwd: root,
-    noColor: true,
-  });
-  const [previousOutput, fallowOutput] = await Promise.all([previousRun, fallowRun]);
+  const [previousOutput, fallowOutput] = await Promise.all([
+    previousRun,
+    renderFallowStatusline(state, root),
+  ]);
   const validFallow =
-    fallowOutput !== "" &&
-    !fallowOutput.includes("\n") &&
-    fallowOutput.startsWith("fallow impact  ")
-      ? colorizeStatusline(
+    fallowOutput === ""
+      ? ""
+      : colorizeStatusline(
           fallowOutput,
           Number.isFinite(Number(process.env.COLUMNS)) ? Number(process.env.COLUMNS) : null,
-        )
-      : "";
+        );
   return [previousOutput, validFallow].filter(Boolean).join("\n");
 };
 
