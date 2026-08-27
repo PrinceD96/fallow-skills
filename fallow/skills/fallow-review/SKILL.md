@@ -196,7 +196,7 @@ round-trip above.
 The review surface (the fallow review app, or any tool you point at the same file) writes reviewer notes to `.fallow-review/feed.jsonl` in the repo root, one JSON object per line. A pair of hooks under `hooks/` lets your already-running Claude Code session pick those notes up automatically and act on them with its existing context, no new session, no copy-paste:
 
 - `fallow-review-session-init.sh` (SessionStart) declares a `watchPath` on `.fallow-review/feed.jsonl` so the session watches the feed for the rest of its life.
-- `fallow-review-on-feedback.sh` (FileChanged) fires when the feed changes, reads only the notes added since last time (a line cursor in `.fallow-review/.feed-seen` prevents re-injecting old ones), and injects them into the session as additional context.
+- `fallow-review-on-feedback.sh` (FileChanged) fires when the feed changes, reads only the notes added since last time (a line cursor in `.fallow-review/.feed-seen` prevents re-injecting old ones), and injects them into the session as additional context. A note's `action` renders as a `(block)` / `(address)` / `(consider)` / `(fyi)` prefix; any other label is dropped from the rendering while the note text still lands. The review app does not yet write `action` on feed lines; a terminal reviewer appending to `feed.jsonl` by hand may set it.
 
 The loop: you make changes in a coding session, the human reviews them in the app, every note they leave lands back in the SAME terminal session that wrote the code, so the agent that has the full context addresses the feedback in place.
 

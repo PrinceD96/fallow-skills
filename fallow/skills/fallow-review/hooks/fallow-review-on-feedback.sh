@@ -38,7 +38,7 @@ fi
 
 # Render each new note as a readable bullet; fromjson? skips any malformed line.
 new=$(tail -n +"$((seen + 1))" "$file" | jq -rR '
-  fromjson? | "- [" + (.target.kind // "note") + (if (.target.value // "") != "" then ": " + .target.value else "" end) + "]" + (if (.action // "") != "" then " (" + .action + ")" else "" end) + " " + (.note // "")
+  fromjson? | "- [" + (.target.kind // "note") + (if (.target.value // "") != "" then ": " + .target.value else "" end) + "]" + ((.action // "") as $a | if ($a == "block" or $a == "address" or $a == "consider" or $a == "fyi") then " (" + $a + ")" else "" end) + " " + (.note // "")
 ')
 
 # Advance the cursor whether or not any line parsed, so we never re-process them.
