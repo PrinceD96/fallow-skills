@@ -78,8 +78,11 @@ remains an agent-layer aid whose discipline is the prompt's.
    leaves the author guessing, so an item MAY carry an `options` array naming the
    moves available. When present it holds at least TWO entries, each with a real
    `gains` and a real `costs`, in no ranked order, with no "recommended" marker
-   and no adjective that tips the scale. If you can only formulate one option,
-   omit `options` entirely: a single option is a prescription wearing a list.
+   and no adjective that tips the scale. "Keep as is" is a REQUIRED entry whenever
+   `options` is present, with its own real gain and cost; it is the guard that
+   keeps the named-moves list from turning into a refactor backlog. If you can
+   only formulate one option besides it, omit `options` entirely: a single move
+   is a prescription wearing a list.
 
 ## Named moves
 
@@ -163,17 +166,17 @@ A single envelope: the echoed snapshot hash, an `abstained` flag, and the
       "anchor": "src/core/api.ts:42",
       "lens": "error-handling",
       "observed": "save() returns the raw DB error to the caller.",
-      "tradeoff": "Keeps the call site thin, but couples every caller to the storage layer's error shapes rather than a domain error.",
+      "tradeoff": "Callers see the full storage error with no translation layer. Callers depend on the storage layer's error shapes.",
       "options": [
         {
           "move": "Keep as is",
-          "gains": "No new type; the storage error keeps its full detail at every call site.",
-          "costs": "Every caller must know the storage layer's error shapes; a driver swap touches all of them."
+          "gains": "Callers keep the full error detail and can match on the exact storage failure.",
+          "costs": "Callers depend on the storage layer's error shapes."
         },
         {
           "move": "Make a type boundary explicit",
-          "gains": "Callers branch on one domain error; the storage layer can change without touching them.",
-          "costs": "A new error type to maintain, and the mapping can drop detail a caller wanted."
+          "gains": "Callers depend on one domain error shape.",
+          "costs": "Callers lose the storage detail the mapping does not carry, and the mapping is a new surface to keep in sync."
         }
       ],
       "question": "How should save() surface a storage failure to its callers?",
@@ -200,8 +203,10 @@ A single envelope: the echoed snapshot hash, an `abstained` flag, and the
   mostly reconstructed, or the cross-cutting slot.
 - `captured`: provenance hint, see rule 4. Not a trust score.
 - `options`: OPTIONAL, see rule 8. Two or more `{ move, gains, costs }` entries drawn
-  from the named moves, unranked. Omit rather than pad; omit when only one move
-  exists.
+  from the named moves, unranked, always including "Keep as is". Omit rather than
+  pad; omit when no move besides keeping exists. No review surface renders
+  `options` yet; it is for the terminal report and the human reading the JSON, and
+  a surface that does not render it loses nothing, the question stands alone.
 - `abstained: true` with `tradeoffs: []` is the terminal "looked, found nothing"
   state; distinguish it from a parse failure (no envelope at all).
 - Render for a human as the anchor, then `observed -> trade-off -> options ->
@@ -220,3 +225,11 @@ A single envelope: the echoed snapshot hash, an `abstained` flag, and the
 - It does not repeat fallow's deterministic decisions; it covers the part the graph
   cannot see.
 - It never tells the human what to choose.
+
+## What is enforced, and by whom
+
+The `options` rules, the render order, and "cite a number or path" are agent-enforced:
+the model checks its own output against this prompt. Only the anchor (`signal_id` or
+`change_anchor`), the `graph_snapshot_hash`, and, once the engine ships it, the
+`action` label are fallow-validated on reentry. Do not claim more than that for any
+item.
