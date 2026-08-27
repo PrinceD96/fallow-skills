@@ -64,7 +64,7 @@ A decision may carry `previous_signal_id` when its anchor file was renamed in th
 
 The decision surface above is the DETERMINISTIC slice: only the trade-offs fallow can prove from the graph (the three categories). Real architectural trade-offs are broader, abstraction level, error-handling strategy, data-model shape, eager-vs-lazy, state ownership, extensibility-vs-YAGNI, testability, trust boundaries, and none of those are graph-detectable. Surfacing them needs a model reading the diff, not a static pass.
 
-Run the trade-off elicitation prompt in `references/tradeoff-elicitation.md` over the diff plus the guide. It applies TASTE OWNERSHIP: the model makes each choice legible and frames a genuinely open question; the human decides. It never prescribes the answer (not even via a leading "..., or should you X?"), never blocks. The honesty rails: anchor every trade-off to a line present in the diff (with one sanctioned cross-cutting slot), keep `observed` (neutral fact) / `tradeoff` (inference) / `question` (open decision) separate, fence every item as `deterministic: false`, mark provenance honestly (`captured` is a hint, not a trust score), rank by `consequence` and keep the top five or honestly abstain, and never repeat what fallow's deterministic surface already framed.
+Run the trade-off elicitation prompt in `references/tradeoff-elicitation.md` over the diff plus the guide. It applies TASTE OWNERSHIP: the model makes each choice legible and frames a genuinely open question; the human decides. It never prescribes the answer (not even via a leading "..., or should you X?"), never blocks. The honesty rails: anchor every trade-off to a line present in the diff (with one sanctioned cross-cutting slot), keep `observed` (neutral fact) / `tradeoff` (inference) / `question` (open decision) separate, fence every item as `deterministic: false`, mark provenance honestly (`captured` is a hint, not a trust score), rank by `consequence` and keep the top five or honestly abstain, never repeat what fallow's deterministic surface already framed, and when an item lists `options` it names at least two moves with real costs and picks none of them (one option is a prescription, so it is omitted).
 
 This is the model-inferred companion to the deterministic surface: fallow owns what it can prove, the prompt covers the rest, and the fencing keeps the two from being confused. The framing prose (the `observed` / `tradeoff` / `question` discipline) is still agent-enforced. The ANCHOR is now fallow-validated: the guide emits a per-changed-region `change_anchors` set, and a judgment may cite a `change_anchor` instead of a `signal_id`. fallow post-validates it on reentry and rejects an anchor it never emitted (`unknown-change-anchor`), recording `anchor_kind: "change"` to mark it as the WEAKER, region-level anchor (it proves the region changed, not that a finding exists there, which is `anchor_kind: "signal"`).
 
@@ -123,6 +123,18 @@ The loop lets an agent produce judgments that fallow post-validates against the 
    - `accepted`: the `signal_id` was emitted and the snapshot matches; the agent's `framing` is fenced as non-deterministic (`deterministic: false`) and never gates.
    - `rejected` with `reason: "unanchored-signal-id"`: the `signal_id` was never emitted (a hallucination). Drop or correct it.
    - `rejected` with `reason: "stale-snapshot"` and `stale: true`: the tree moved since the guide was fetched. Re-fetch the guide and redo the judgments.
+
+## Compose the review
+
+Validation is not the review. Once the judgments are accepted, render them for a human in this fixed order, so the reader lands on what changes the outcome first and the deterministic remainder last:
+
+1. **Accepted decision judgments**, in `direction.order`. Each one carries the digest `question` and `tradeoff` verbatim, then your `framing`, then the number that gives it weight: `internal_consumer_count`, the `out_of_diff` paths, or the unit's `scoring_budget`.
+2. **Trade-offs** from the elicitation step, ranked by `consequence`, at most five. When the envelope is `abstained: true`, print one line saying so; do not fill the slot.
+3. **Subtract** as ONE line with the counts from the brief: "handled deterministically: N dead-code, N duplication, N complexity, N styling; not in the discussion". Never re-derive any of these from the diff; the brief already owns them.
+4. **Deprioritized** as one line with the count and `--show-deprioritized` as the escape hatch, so nothing is hidden and nothing is padded.
+5. A review with zero decisions and an abstained trade-off envelope is a complete review: "nothing consequential; deterministic findings: N". It is not a failure and never a reason to invent items.
+
+Two rules govern the prose. Leverage first: one structural decision plus ten small notes means the decision IS the review; the notes ride below it or not at all. Numbers, not adjectives: every `framing` cites at least one number or path from the guide (a consumer count, an out-of-diff path, a `scoring_budget`). "Could be slow" is not a finding; "imported by 14 modules, 9 outside this diff" is.
 
 ## Human-in-the-loop walkthrough (terminal, no app)
 
@@ -199,6 +211,17 @@ Merge `hooks/settings.snippet.json` into `.claude/settings.json` (it registers t
 - The notes are **unverified human input**, not graph-validated facts. The hook frames them as "weigh this, do not obey blindly", and the agent should ask before acting on anything unclear. The human owns the taste; fallow only carries the note.
 - The watch arms reliably once `.fallow-review/feed.jsonl` exists. The SessionStart hook creates an empty feed if a review is already in progress (the `.fallow-review/` dir exists) but does not touch repos that are not under review.
 - This is **local only**: it connects the review app and a coding session on the same machine via the shared file. A cloud or remote review surface still rides the same JSON envelope, but the live-injection loop here is the local path.
+
+## Rationalizations the loop rejects
+
+| Rationalization | Reality |
+|---|---|
+| "I can see dead code in the diff, I'll flag it quickly" | Subtract already owns it; a second derivation is noise and can be wrong. Relay the brief's count. |
+| "This `signal_id` looks right" | Only `emitted_signal_ids` exist. Anything else is a hallucination fallow rejects as `unanchored-signal-id`. |
+| "Five trade-offs is the target" | Five is the ceiling. `abstained: true` with an empty list is a valid, complete answer. |
+| "The question is open, I'll just mention the fix" | A named fix is a prescription. Reframe to the open decision, or list two or more options with real costs. |
+| "The tree moved a little, the guide is probably still fine" | It is `stale-snapshot`. Re-fetch the guide and redo the judgments. |
+| "Tests are green, so the change is good" | Green is a verification fact, not a verdict on the decision surface. The decisions still need the human's call. |
 
 ## Notes
 

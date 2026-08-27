@@ -74,6 +74,28 @@ remains an agent-layer aid whose discipline is the prompt's.
    interaction in `tradeoff`. For the truly anchorless case you MAY emit at most ONE
    item with `anchor: "cross-cutting"`, `confidence: "low"`, naming the spanned
    files/invariants in `observed`. If in doubt, anchor locally; this slot is rare.
+8. **Options make the choice space legible; they never pick.** "This is complex"
+   leaves the author guessing, so an item MAY carry an `options` array naming the
+   moves available. When present it holds at least TWO entries, each with a real
+   `gains` and a real `costs`, in no ranked order, with no "recommended" marker
+   and no adjective that tips the scale. If you can only formulate one option,
+   omit `options` entirely: a single option is a prescription wearing a list.
+
+## Named moves
+
+Use this vocabulary for `move` so two runs describe the same restructuring the
+same way. It is a vocabulary, not a checklist; "keep as is" is always a legitimate
+option and often the one with the lowest cost.
+
+- Replace a conditional chain with a typed model or a dispatcher.
+- Collapse duplicate branches into one flow.
+- Separate orchestration from business logic.
+- Move feature-specific logic to the module that owns the concept.
+- Reuse the canonical helper instead of a near-duplicate.
+- Make a type boundary explicit so downstream branching disappears.
+- Delete a pass-through wrapper that adds indirection without clarifying the API.
+- Extract a helper, or split a large file into focused modules.
+- Keep as is.
 
 ## Inputs to gather
 
@@ -142,6 +164,18 @@ A single envelope: the echoed snapshot hash, an `abstained` flag, and the
       "lens": "error-handling",
       "observed": "save() returns the raw DB error to the caller.",
       "tradeoff": "Keeps the call site thin, but couples every caller to the storage layer's error shapes rather than a domain error.",
+      "options": [
+        {
+          "move": "Keep as is",
+          "gains": "No new type; the storage error keeps its full detail at every call site.",
+          "costs": "Every caller must know the storage layer's error shapes; a driver swap touches all of them."
+        },
+        {
+          "move": "Make a type boundary explicit",
+          "gains": "Callers branch on one domain error; the storage layer can change without touching them.",
+          "costs": "A new error type to maintain, and the mapping can drop detail a caller wanted."
+        }
+      ],
       "question": "How should save() surface a storage failure to its callers?",
       "consequence": "high",
       "confidence": "medium",
@@ -165,10 +199,13 @@ A single envelope: the echoed snapshot hash, an `abstained` flag, and the
   shows it; `medium` = the diff plus a reasonable assumption about intent; `low` =
   mostly reconstructed, or the cross-cutting slot.
 - `captured`: provenance hint, see rule 4. Not a trust score.
+- `options`: OPTIONAL, see rule 8. Two or more `{ move, gains, costs }` entries drawn
+  from the named moves, unranked. Omit rather than pad; omit when only one move
+  exists.
 - `abstained: true` with `tradeoffs: []` is the terminal "looked, found nothing"
   state; distinguish it from a parse failure (no envelope at all).
-- Render for a human as the anchor, then `observed -> trade-off -> question`, with
-  the question LAST so the human lands on the decision they own.
+- Render for a human as the anchor, then `observed -> trade-off -> options ->
+  question`, with the question LAST so the human lands on the decision they own.
 
 ## What good looks like
 
@@ -178,6 +215,8 @@ A single envelope: the echoed snapshot hash, an `abstained` flag, and the
   abstain. Never padded to fill slots.
 - `observed` reads as a neutral fact; the `question` names no fix. If a reader can
   guess your preferred answer from the question, reframe it.
+- When `options` is present, both entries carry a real cost. If a reader can guess
+  the preferred option from how the entries are worded, drop `options`.
 - It does not repeat fallow's deterministic decisions; it covers the part the graph
   cannot see.
 - It never tells the human what to choose.
