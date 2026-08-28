@@ -56,7 +56,7 @@ Each decision is a framed question anchored to a `signal_id` fallow deterministi
 
 - **coupling-boundary**: a new cross-zone dependency edge.
 - **public-api-contract**: a new exported public-API surface, or a changed contract consumed by modules OUTSIDE this diff (a coordinate-or-confirm signal).
-- **dependency**: a new third-party dependency (new maintenance + supply-chain surface).
+- **dependency**: a changed `package.json` that adds third-party entries or moves a declared entry across a major version (or a `0.x` minor). One batched decision per manifest per kind, weighted by the graph's in-repo importers of the affected packages: `blast` is the importer count, `internal_consumer_count` the importers outside the diff. Both counts are a union over the batched packages. An entry outside `dependencies` shows a `(dev)`, `(optional)`, or `(peer)` tag in the question. `digest.deltas` carries the keys as `dependency_added` (`<manifest>::<name>`) and `dependency_major_bumped` (`<manifest>::<name>@<from>-><to>`); both lists are always present, possibly empty. Minor and patch bumps and non-numeric ranges (workspace, file, git, tags) are never candidates. A `dependency` decision has no `suppress` action: it anchors on `package.json`, which cannot carry a comment, so never paste a `// fallow-ignore` line into a manifest. The `decision_surface` MCP tool surfaces the same dependency decisions as the CLI. Framing rule: cite the changelog question ("which documented change in `<from>` to `<to>` reaches these N importers?"); do not guess the behavior change.
 
 A decision may carry `previous_signal_id` when its anchor file was renamed in the change: that is the `signal_id` the same decision would have had at the old path, so a review surface can re-attach a prior reviewer comment across a `git mv`.
 
@@ -105,13 +105,16 @@ The loop lets an agent produce judgments that fallow post-validates against the 
        {
          "signal_id": "<one signal_id fallow emitted>",
          "framing": "<your reasoning for the human reviewer>",
-         "concern": "<optional: the specific thing to check>"
+         "action": "<block | address | consider | fyi>",
+         "concern": "<optional: one lens from agent_schema.concern_vocabulary>"
        }
      ]
    }
    ```
 
    Every `signal_id` MUST be one fallow emitted in the guide (`emitted_signal_ids`). An unanchored id is rejected. Echo the `graph_snapshot_hash` verbatim.
+
+   `action` tells the author what the judgment asks of them: `block` and `address` are required actions, `consider` is optional, `fyi` needs nothing. `concern` names the lens; prefer the guide's `agent_schema.concern_vocabulary`, thirteen kebab-case lenses: `abstraction`, `coupling`, `data-model`, `error-handling`, `control-flow`, `performance`, `dependencies`, `api-ergonomics`, `compatibility`, `state-ownership`, `extensibility`, `testability`, `trust-boundary`. The guide publishes both lists as `agent_schema.action_vocabulary` and `agent_schema.concern_vocabulary`; read them from the guide rather than from this file. `action_vocabulary` is enforced; `concern_vocabulary` is advisory, any string is accepted.
 
 4. **Post-validate:**
 
@@ -120,8 +123,9 @@ The loop lets an agent produce judgments that fallow post-validates against the 
    ```
 
    The response sorts each judgment into:
-   - `accepted`: the `signal_id` was emitted and the snapshot matches; the agent's `framing` is fenced as non-deterministic (`deterministic: false`) and never gates.
+   - `accepted`: the `signal_id` was emitted and the snapshot matches; the agent's `framing` is fenced as non-deterministic (`deterministic: false`) and never gates. The `action` is echoed next to `agent_framing`, fenced the same way: it is an instruction to the author, never a fallow fact.
    - `rejected` with `reason: "unanchored-signal-id"`: the `signal_id` was never emitted (a hallucination). Drop or correct it.
+   - `rejected` with `reason: "invalid-action"` and `invalid_value` (the label fallow refused): the `action` is outside the vocabulary. This is reported only after the anchor resolved; a hallucinated anchor plus a bad label rejects as `unanchored-signal-id` / `unknown-change-anchor` instead. Fix the anchor first, then the label.
    - `rejected` with `reason: "stale-snapshot"` and `stale: true`: the tree moved since the guide was fetched. Re-fetch the guide and redo the judgments.
 
 ## Compose the review
@@ -133,6 +137,11 @@ Validation is not the review. Once the judgments are accepted, render them for a
 3. **Subtract** as ONE line with the counts from the brief: "handled deterministically: N dead-code, N duplication, N complexity, N styling; not in the discussion". Never re-derive any of these from the diff; the brief already owns them.
 4. **Deprioritized** as one line with the count and `--show-deprioritized` as the escape hatch, so nothing is hidden and nothing is padded.
 5. A review with zero decisions and an abstained trade-off envelope is a complete review: "nothing consequential; deterministic findings: N". It is not a failure and never a reason to invent items.
+
+Two graph facts feed the composition without adding items:
+
+- Each direction unit carries `test_adjacency`: `none` (no test file imports this unit), `untouched` (a test importer exists but is not in the diff), or `changed` (a test importer is in the diff). It is absent for test files and when the graph was not retained. For a `review-here` unit with `none`, ask the author for the verification story in the framing. Never claim coverage; the value says whether a test imports the unit, not whether it exercises the change.
+- `digest.partition.independent_slices` lists the connected components of the inter-unit dependency graph, each a sorted list of module directories. It is present only when there are two or more slices; absent means the change is one connected piece. When `digest.triage.risk_class` is `high` and the field is present, name them as an orientation fact: "this change splits into K independent slices along a graph-proven seam". It is never a demand to split; the author owns that call.
 
 Two rules govern the prose. Leverage first: one structural decision plus ten small notes means the decision IS the review; the notes ride below it or not at all. Numbers, not adjectives: every `framing` cites at least one number or path from the guide (a consumer count, an out-of-diff path, a `scoring_budget`). "Could be slow" is not a finding; "imported by 14 modules, 9 outside this diff" is.
 
@@ -149,16 +158,16 @@ The human owns the taste; you only carry the note. fallow validates the ANCHOR (
    fallow review --base origin/main --walkthrough-guide --format json > guide.json
    ```
 
-   `guide.json` carries the decision `signal_id`s (the framed structural questions), a per-changed-region `change_anchors` set (each `{ "change_anchor": "chg:<hex>", "file", "start_line", "line_count" }`), and the `graph_snapshot_hash` staleness pin. Surface the tour to the human and collect, per item they choose to flag, a short verdict/note.
+   `guide.json` carries the decision `signal_id`s (the framed structural questions), a per-changed-region `change_anchors` set (each `{ "change_anchor": "chg:<hex>", "file", "start_line", "line_count" }`), and the `graph_snapshot_hash` staleness pin. Surface the tour to the human and collect, per item they choose to flag, a short verdict/note plus the action they want from the author. Offer only the four labels (`block`, `address`, `consider`, `fyi`); an unknown label is refused with `invalid-action`.
 
-2. **Carry each human note as a judgment** (echo the hash verbatim; cite a `signal_id` fallow emitted for a flagged decision, or a `change_anchor` for any other changed region the human notes):
+2. **Carry each human note as a judgment** (echo the hash verbatim; cite a `signal_id` fallow emitted for a flagged decision, or a `change_anchor` for any other changed region the human notes; carry the human's action as `action`):
 
    ```json
    {
      "graph_snapshot_hash": "<echo from guide.json>",
      "judgments": [
-       { "signal_id": "<an emitted decision signal>", "framing": "<the human's verdict/note>", "concern": "<optional>" },
-       { "change_anchor": "<an emitted chg: id>", "framing": "<the human's note on this region>", "concern": "<optional>" }
+       { "signal_id": "<an emitted decision signal>", "framing": "<the human's verdict/note>", "action": "address", "concern": "<optional>" },
+       { "change_anchor": "<an emitted chg: id>", "framing": "<the human's note on this region>", "action": "consider", "concern": "<optional>" }
      ]
    }
    ```
@@ -171,9 +180,10 @@ The human owns the taste; you only carry the note. fallow validates the ANCHOR (
 
    - `accepted` (with `anchor_kind: "signal"` or `"change"`): the anchor was emitted and the snapshot matches; the human's `framing` is fenced `deterministic: false`.
    - `rejected` `unanchored-signal-id` / `unknown-change-anchor`: the human cited something fallow never emitted. Re-anchor to a real signal or region; do not invent one.
+   - `rejected` `invalid-action` with `invalid_value`: the action label is outside the vocabulary. Reported only once the anchor resolved, so fix the anchor first, then the label.
    - `stale: true` (`stale-snapshot`): the tree moved since `guide.json` was fetched. Re-fetch the guide, re-capture, resubmit.
 
-4. **Act:** relay the accepted human verdicts into the coding session in place, or append them to `.fallow-review/feed.jsonl` so the live-injection hooks (below) carry them to the session that wrote the code. Either way the note arrives anchored and fenced, never as a fallow-grade fact.
+4. **Act:** relay the accepted human verdicts into the coding session in place, or append them to `.fallow-review/feed.jsonl` so the live-injection hooks (below) carry them to the session that wrote the code. Feed lines may carry `action` too, so the receiving agent can triage: `block` and `address` are required, `consider` is optional, `fyi` needs no change. Either way the note arrives anchored and fenced, never as a fallow-grade fact.
 
 The guarantee matches the review app's: the human cannot anchor a note to a signal or region fallow did not emit, and a note left against a moved tree is refused rather than silently mis-mapped. The terminal is a first-class capture surface, no app required.
 
@@ -186,7 +196,7 @@ round-trip above.
 The review surface (the fallow review app, or any tool you point at the same file) writes reviewer notes to `.fallow-review/feed.jsonl` in the repo root, one JSON object per line. A pair of hooks under `hooks/` lets your already-running Claude Code session pick those notes up automatically and act on them with its existing context, no new session, no copy-paste:
 
 - `fallow-review-session-init.sh` (SessionStart) declares a `watchPath` on `.fallow-review/feed.jsonl` so the session watches the feed for the rest of its life.
-- `fallow-review-on-feedback.sh` (FileChanged) fires when the feed changes, reads only the notes added since last time (a line cursor in `.fallow-review/.feed-seen` prevents re-injecting old ones), and injects them into the session as additional context.
+- `fallow-review-on-feedback.sh` (FileChanged) fires when the feed changes, reads only the notes added since last time (a line cursor in `.fallow-review/.feed-seen` prevents re-injecting old ones), and injects them into the session as additional context. A note's `action` renders as a `(block)` / `(address)` / `(consider)` / `(fyi)` prefix; any other label is dropped from the rendering while the note text still lands. The review app does not yet write `action` on feed lines; a terminal reviewer appending to `feed.jsonl` by hand may set it.
 
 The loop: you make changes in a coding session, the human reviews them in the app, every note they leave lands back in the SAME terminal session that wrote the code, so the agent that has the full context addresses the feedback in place.
 
